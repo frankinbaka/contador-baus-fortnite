@@ -1,0 +1,10 @@
+{
+  "largura_tela": 1920,
+  "altura_tela": 1080,
+  "x": 50,
+  "y": 14,
+  "metodo": "cinza",
+  "limiar": 0.8,
+  "margem": 60,
+  "contar_tesouros": true
+}

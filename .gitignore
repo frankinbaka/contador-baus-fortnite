@@ -1,0 +1,18 @@
+# dados pessoais de quem usa
+dados_baus.json
+dados_baus.json.tmp
+config.json
+conferir/
+
+# builds e pacotes
+build/
+dist/
+*.spec
+*.exe
+*.zip
+*.rar
+__pycache__/
+
+# pastas locais de distribuição
+Contador de baus/
+Para enviar/

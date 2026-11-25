@@ -1,0 +1,9 @@
+{
+  "largura_tela": 1920,
+  "altura_tela": 1080,
+  "x": 676,
+  "y": 168,
+  "metodo": "cinza",
+  "limiar": 0.75,
+  "margem": 40
+}

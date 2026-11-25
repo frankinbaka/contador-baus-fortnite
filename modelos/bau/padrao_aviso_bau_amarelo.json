@@ -1,0 +1,19 @@
+{
+  "largura_tela": 1920,
+  "altura_tela": 1080,
+  "x": 1383,
+  "y": 341,
+  "metodo": "amarelo",
+  "limiar": 0.7,
+  "margem": 90,
+  "margem_y": 10,
+  "confirmar": {
+    "arquivo": "padrao_aviso_exp.conf.png",
+    "metodo": "branco",
+    "dx": -44,
+    "dy": -25,
+    "folga_x": 25,
+    "folga_y": 8,
+    "limiar": 0.45
+  }
+}
