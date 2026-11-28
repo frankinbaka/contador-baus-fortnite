@@ -69,6 +69,13 @@ CONFIG_PADRAO = {
     "overlay_tamanho_fonte": 16,
     "overlay_opacidade": 0.85,
     "overlay_so_com_fortnite": True,
+    "atalho_proxima_etapa": "f10",
+    "atalho_etapa_anterior": "shift+f10",
+    "rota_minutos": 8,
+    "rota_velocidade_m_s": 6.0,       # andando/correndo entre os baús
+    "rota_segundos_por_bau": 7,       # abrir + pegar os itens
+    "overlay_mapa_rota": True,        # mapinha da rota no contador do jogo
+    "overlay_tamanho_mapa": 200,
 }
 
 
@@ -447,8 +454,40 @@ class Overlay:
         self.lbl_tes = tk.Label(caixa, bg="#120d24", fg="#6fe3ff", font=("Segoe UI", fs, "bold"), anchor="w")
         self.lbl_bau.pack(fill="x")
         self.lbl_tes.pack(fill="x")
+        fr = max(9, fs - 5)
+        self.lbl_rota1 = tk.Label(caixa, bg="#120d24", fg="white", font=("Segoe UI", fr, "bold"), anchor="w")
+        self.lbl_rota2 = tk.Label(caixa, bg="#120d24", fg="#b9b0d9", font=("Segoe UI", fr - 1), anchor="w")
+        self.lbl_mapa = tk.Label(caixa, bg="#120d24", bd=0)
+        self._rota_visivel = False
+        self._mapa_ref = None
         self.mostrando = True
         self.win.after(50, self._clique_passa)
+
+    def atualizar_rota(self, linha1, linha2, imagem_pil=None):
+        """Mostra a etapa atual da rota (ou esconde, se linha1 for None)."""
+        if linha1 is None:
+            if self._rota_visivel:
+                for w in (self.lbl_rota1, self.lbl_rota2, self.lbl_mapa):
+                    w.pack_forget()
+                self._rota_visivel = False
+            self.posicionar()
+            return
+        if not self._rota_visivel:
+            self.lbl_rota1.pack(fill="x", pady=(6, 0))
+            self.lbl_rota2.pack(fill="x")
+            self._rota_visivel = True
+        self.lbl_rota1.config(text=linha1)
+        self.lbl_rota2.config(text=linha2)
+        if imagem_pil is not None:
+            if getattr(self, "_mapa_pil", None) is not imagem_pil:
+                from PIL import ImageTk
+                self._mapa_pil = imagem_pil
+                self._mapa_ref = ImageTk.PhotoImage(imagem_pil)
+                self.lbl_mapa.config(image=self._mapa_ref)
+            self.lbl_mapa.pack(pady=(4, 0))
+        else:
+            self.lbl_mapa.pack_forget()
+        self.posicionar()
 
     def _clique_passa(self):
         u = ctypes.windll.user32
@@ -503,6 +542,8 @@ class App:
         self.root.title("Contador de Baús")
         self.root.geometry("440x600")
         self.root.protocol("WM_DELETE_WINDOW", self.root.withdraw)
+        self.rota = None            # rotas.RotaAtiva
+        self._planejador = None
         self.montar_tela()
         self.overlay = Overlay(self.root, self.cfg)
 
@@ -533,7 +574,11 @@ class App:
         for txt, cmd in (("−1 baú", self.dados.menos_bau), ("+1 baú", self.dados.mais_bau),
                          ("−1 tes.", self.dados.menos_tesouro), ("+1 tes.", self.dados.mais_tesouro)):
             self._botao(bt, txt, lambda c=cmd: (c(), self.atualizar())).pack(side="left", padx=3)
-        self._botao(r, "Finalizar partida (F9)", self.finalizar).pack(pady=(2, 6))
+        bt2 = tk.Frame(r, bg=BG)
+        bt2.pack(pady=(2, 6))
+        self._botao(bt2, "Finalizar partida (F9)", self.finalizar).pack(side="left", padx=3)
+        tk.Button(bt2, text="🗺  Rotas de baús", command=self.abrir_rotas, bg=OURO, fg="#1b1530", relief="flat",
+                  activebackground="#ffe58a", font=("Segoe UI", 9, "bold"), padx=8, pady=3).pack(side="left", padx=3)
 
         self.lbl_total = tk.Label(r, bg=BG, fg="white", font=("Segoe UI", 11, "bold"))
         self.lbl_total.pack(pady=(4, 2))
@@ -593,15 +638,58 @@ class App:
             self.tabela.insert("", "end", iid=str(p["numero"]),
                                values=(f"{p['numero']}ª", p["baus"], p["tesouros"], p["fim"] or ""))
         self.overlay.atualizar(d.baus, d.tesouros)
+        self.atualizar_rota_overlay()
         n = {t: len(self.detector.modelos[t]) for t in TIPOS}
         self.lbl_modelos.config(text=f"modelos carregados: {n['bau']} baú • {n['tesouro']} tesouro • {n['fim']} fim")
         if self.icone:
             self.icone.title = f"Baús {d.baus} • Tesouros {d.tesouros} (total {d.total_baus})"
 
+    # ---- rotas
+    @property
+    def planejador(self):
+        if self._planejador is None:
+            import rotas
+            c = self.cfg
+            self._planejador = rotas.Planejador(rotas.Mapa(os.path.join(PASTA_PACOTE, "mapa")),
+                                                velocidade_m_s=c["rota_velocidade_m_s"],
+                                                segundos_por_bau=c["rota_segundos_por_bau"])
+        return self._planejador
+
+    def abrir_rotas(self):
+        JanelaRotas(self)
+
+    def usar_rota(self, rota):
+        self.rota = rota
+        self._mapa_rota_chave = None
+        self.atualizar()
+
+    def atualizar_rota_overlay(self):
+        if not self.rota:
+            self.overlay.atualizar_rota(None, None)
+            return
+        l1, l2 = self.rota.textos()
+        img = None
+        if self.cfg["overlay_mapa_rota"]:
+            chave = (id(self.rota), self.rota.i)
+            if getattr(self, "_mapa_rota_chave", None) != chave:
+                import rotas
+                self._mapa_rota_img = rotas.desenhar_rota(self.planejador.mapa, self.rota.etapas, self.rota.i,
+                                                          self.rota.inicio, self.cfg["overlay_tamanho_mapa"])
+                self._mapa_rota_chave = chave
+            img = self._mapa_rota_img
+        self.overlay.atualizar_rota(l1, l2, img)
+
+    def etapa(self, passo):
+        if self.rota:
+            (self.rota.proxima if passo > 0 else self.rota.anterior)()
+            self.bip(1000 if passo > 0 else 700, 60)
+
     # ---- ações
     def finalizar(self, motivo="manual", tesouros_tela=None):
         if self.dados.finalizar(motivo, tesouros_tela):
             self.bip(600, 250)
+        if self.rota:
+            self.rota.reiniciar()   # próxima partida começa a rota do zero
         self.atualizar()
 
     def apagar_selecionada(self, _e=None):
@@ -638,12 +726,15 @@ class App:
     def ler_fila(self):
         d = self.dados
         acoes = {
-            "bau": lambda: (d.mais_bau(), self.bip(1200)),
+            "bau": lambda: (d.mais_bau(), self.rota and self.rota.bau(), self.bip(1200)),
+            "proxima_etapa": lambda: self.etapa(+1),
+            "etapa_anterior": lambda: self.etapa(-1),
             "tesouro": lambda: (d.mais_tesouro(), self.bip(1600, 150)),
             "menos_bau": d.menos_bau,
             "menos_tesouro": d.menos_tesouro,
             "finalizar": self.finalizar,
             "mostrar": self.mostrar,
+            "rotas": lambda: (self.mostrar(), self.abrir_rotas()),
         }
         try:
             while True:
@@ -671,6 +762,8 @@ class App:
         keyboard.add_hotkey(c["atalho_mais_tesouro"], lambda: put("tesouro"))
         keyboard.add_hotkey(c["atalho_menos_tesouro"], lambda: put("menos_tesouro"))
         keyboard.add_hotkey(c["atalho_finalizar"], lambda: put("finalizar"))
+        keyboard.add_hotkey(c["atalho_proxima_etapa"], lambda: put("proxima_etapa"))
+        keyboard.add_hotkey(c["atalho_etapa_anterior"], lambda: put("etapa_anterior"))
         for tipo in TIPOS:
             keyboard.add_hotkey(c[f"atalho_modelo_{tipo}"], lambda t=tipo: self.tirar_print(t))
 
@@ -748,6 +841,7 @@ class App:
             pystray.MenuItem("+1 baú", p("bau")),
             pystray.MenuItem("+1 tesouro", p("tesouro")),
             pystray.MenuItem("Finalizar partida", p("finalizar")),
+            pystray.MenuItem("Rotas de baús", p("rotas")),
             pystray.MenuItem("Sair", p("sair")),
         ))
         self.icone.run_detached()
@@ -763,6 +857,151 @@ class App:
 
     def rodar(self):
         self.root.mainloop()
+
+
+class JanelaRotas:
+    """Mapa com os baús. Clique onde vocês caíram e o programa monta a melhor rota."""
+    LADO = 620
+
+    def __init__(self, app):
+        import rotas
+        from PIL import Image, ImageDraw, ImageTk
+        self.rotas, self.ImageTk = rotas, ImageTk
+        self.app = app
+        if getattr(app, "_janela_rotas", None) and app._janela_rotas.top.winfo_exists():
+            app._janela_rotas.top.deiconify()
+            app._janela_rotas.top.lift()
+            return
+        try:
+            self.plan = app.planejador
+        except Exception as e:
+            messagebox.showerror("Rotas", f"Não consegui abrir o mapa:\n{e}")
+            return
+        app._janela_rotas = self
+        self.mapa = self.plan.mapa
+        base = Image.open(self.mapa.imagem).convert("RGB")
+        self.esc = self.LADO / max(base.size)
+        # mapa base com um pontinho em cada baú (sem rota)
+        d = ImageDraw.Draw(base)
+        for x, y, _ in self.mapa.pontos:
+            X, Y = self.mapa.para_pixel(x, y)
+            d.ellipse((X - 2, Y - 2, X + 2, Y + 2), fill=(255, 211, 77), outline=(60, 40, 0))
+        self.base = base
+        self.inicio = None
+        self.etapas = []
+
+        top = self.top = tk.Toplevel(app.root)
+        top.title("Rotas de baús")
+        top.configure(bg=BG)
+        esq = tk.Frame(top, bg=BG)
+        esq.pack(side="left", padx=8, pady=8)
+        self.cv = tk.Canvas(esq, width=int(base.width * self.esc), height=int(base.height * self.esc),
+                            highlightthickness=0, cursor="crosshair", bg="black")
+        self.cv.pack()
+        self.cv.bind("<Button-1>", self.clicou)
+        tk.Label(esq, text=f"Clique no mapa onde vocês caíram  •  {len(self.mapa.pontos)} baús  •  "
+                           f"dados: fortnite.gg v{self.mapa.versao}",
+                 bg=BG, fg="#b9b0d9", font=("Segoe UI", 8)).pack(anchor="w", pady=(4, 0))
+
+        dir_ = tk.Frame(top, bg=BG)
+        dir_.pack(side="left", fill="y", padx=(0, 10), pady=8)
+        rot = lambda t: tk.Label(dir_, text=t, bg=BG, fg="white", font=("Segoe UI", 9, "bold"))
+        rot("Onde vocês caíram:").pack(anchor="w")
+        nomes = sorted(l["nome"].title().replace("'S", "'s") for l in self.mapa.locais)
+        self._locais = {l["nome"].title().replace("'S", "'s"): l for l in self.mapa.locais}
+        self.cb = ttk.Combobox(dir_, values=nomes, state="readonly", width=28)
+        self.cb.pack(anchor="w", pady=(2, 8))
+        self.cb.bind("<<ComboboxSelected>>", self.escolheu_local)
+        rot("Tempo de saque (minutos):").pack(anchor="w")
+        self.minutos = tk.IntVar(value=int(app.cfg["rota_minutos"]))
+        tk.Spinbox(dir_, from_=2, to=20, textvariable=self.minutos, width=5,
+                   command=self.calcular).pack(anchor="w", pady=(2, 8))
+        bts = tk.Frame(dir_, bg=BG)
+        bts.pack(anchor="w", pady=(0, 6))
+        app._botao(bts, "Melhores pousos", self.melhores).pack(side="left", padx=(0, 4))
+        self.lbl_res = tk.Label(dir_, text="", bg=BG, fg=OURO, font=("Segoe UI", 11, "bold"), justify="left")
+        self.lbl_res.pack(anchor="w")
+        self.lista = tk.Listbox(dir_, width=40, height=16, bg=BG2, fg="white", relief="flat",
+                                selectbackground=ROXO, font=("Segoe UI", 9), activestyle="none")
+        self.lista.pack(anchor="w", fill="y", expand=True, pady=4)
+        bt2 = tk.Frame(dir_, bg=BG)
+        bt2.pack(anchor="w", pady=(4, 0))
+        tk.Button(bt2, text="✔ Usar esta rota no jogo", command=self.usar, bg=OURO, fg="#1b1530", relief="flat",
+                  font=("Segoe UI", 9, "bold"), padx=8, pady=3).pack(side="left", padx=(0, 4))
+        app._botao(bt2, "Parar rota", self.parar).pack(side="left")
+        tk.Label(dir_, text="No jogo: a etapa avança sozinha quando você abre\nos baús dela. F10 pula etapa, Shift+F10 volta.",
+                 bg=BG, fg="#b9b0d9", font=("Segoe UI", 8), justify="left").pack(anchor="w", pady=(6, 0))
+        if app.rota:
+            self.inicio, self.etapas = app.rota.inicio, app.rota.etapas
+            self.mostrar_lista()
+        self.desenhar()
+
+    def desenhar(self):
+        if self.etapas or self.inicio:
+            img = self.rotas.desenhar_rota(self.mapa, self.etapas, -1, self.inicio, recorte=False, base=self.base.copy())
+        else:
+            img = self.base
+        img = img.resize((int(img.width * self.esc), int(img.height * self.esc)))
+        self._foto = self.ImageTk.PhotoImage(img)
+        self.cv.delete("all")
+        self.cv.create_image(0, 0, anchor="nw", image=self._foto)
+
+    def clicou(self, e):
+        self.inicio = self.mapa.de_pixel(e.x / self.esc, e.y / self.esc)
+        self.cb.set("")
+        self.calcular()
+
+    def escolheu_local(self, _e=None):
+        l = self._locais[self.cb.get()]
+        self.inicio = (l["x"], l["y"])
+        self.calcular()
+
+    def calcular(self):
+        if not self.inicio:
+            return
+        try:
+            m = max(1, int(self.minutos.get()))
+        except (tk.TclError, ValueError):
+            return
+        self.app.cfg["rota_minutos"] = m
+        salvar_config(self.app.cfg)
+        self.top.config(cursor="watch")
+        self.top.update_idletasks()
+        paradas, self.tempo = self.plan.rota(*self.inicio, minutos=m)
+        self.top.config(cursor="")
+        self.etapas = self.rotas.juntar_etapas(paradas)
+        self.mostrar_lista()
+        self.desenhar()
+
+    def mostrar_lista(self):
+        self.lista.delete(0, "end")
+        total = sum(e.baus for e in self.etapas)
+        onde = self.mapa.nome_perto(*self.inicio) if self.inicio else "?"
+        self.lbl_res.config(text=f"{total} baús em ~{self.minutos.get()} min\nsaindo de {onde}")
+        for k, e in enumerate(self.etapas, 1):
+            self.lista.insert("end", f"{k:>2}. {e.nome}  —  {e.baus} baú{'s' if e.baus > 1 else ''}")
+
+    def melhores(self):
+        self.top.config(cursor="watch")
+        self.top.update_idletasks()
+        res = self.plan.melhores_pousos(float(self.minutos.get()), n=6)
+        self.top.config(cursor="")
+        self.lista.delete(0, "end")
+        self.lbl_res.config(text=f"Melhores pousos ({self.minutos.get()} min):")
+        for baus, nome, _t in res:
+            self.lista.insert("end", f"{baus:>3} baús  —  {nome.title().replace(chr(39) + 'S', chr(39) + 's')}")
+        self.lista.insert("end", "")
+        self.lista.insert("end", "Escolha um deles em 'Onde vocês caíram'.")
+
+    def usar(self):
+        if not self.etapas:
+            messagebox.showinfo("Rotas", "Primeiro clique no mapa (ou escolha o lugar) pra montar a rota.", parent=self.top)
+            return
+        self.app.usar_rota(self.rotas.RotaAtiva(self.etapas, self.inicio, self.minutos.get()))
+        self.top.withdraw()
+
+    def parar(self):
+        self.app.usar_rota(None)
 
 
 if __name__ == "__main__":

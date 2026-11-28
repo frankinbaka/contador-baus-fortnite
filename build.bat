@@ -5,6 +5,7 @@ py -m pip install -r requirements.txt pyinstaller
 py -m PyInstaller --noconfirm --onefile --windowed --name ContadorDeBaus ^
   --icon assets\icone.ico ^
   --add-data "modelos;modelos" ^
+  --add-data "mapa;mapa" ^
   --hidden-import pystray._win32 ^
   contador_baus.py
 echo.

@@ -15,6 +15,7 @@ Baixe o **`ContadorDeBaus.exe`** na página de [Releases](../../releases/latest)
 - **Fecha a partida sozinho** na tela **"SUA COLOCAÇÃO"** ou **"RESUMO DA PARTIDA"**, e conta os tesouros mostrados no resumo.
 - **Histórico**: 1ª partida 20 baús, 2ª 30 baús… com o total e a média.
 - **Contador na tela**: uma caixinha com BAÚS e TESOUROS por cima do jogo, no canto que você escolher.
+- **Rotas de baús**: clique no mapa onde caiu e ele monta a rota que abre mais baús no tempo escolhido, mostrando a etapa atual e um mapinha no contador do jogo.
 - **Pasta `conferir`**: guarda uma foto pequena de cada contagem (as últimas 200), pra você conferir se algo foi contado errado.
 
 O programa **só lê a imagem da tela** (como OBS ou Medal). Não mexe no jogo nem na memória dele.
@@ -26,6 +27,7 @@ O programa **só lê a imagem da tela** (como OBS ou Medal). Não mexe no jogo n
 | F8 / F7 | +1 / −1 baú |
 | F6 / Ctrl+F6 | +1 / −1 tesouro |
 | F9 | finalizar a partida na mão |
+| F10 / Shift+F10 | próxima / anterior etapa da rota |
 | Ctrl+Shift+B / T / F | ensinar um modelo novo de baú / tesouro / fim de partida |
 | Del (na lista) | apagar uma partida |
 
@@ -51,5 +53,7 @@ A cada 0,15 s o programa tira um print da tela (com `mss`) e procura, numa área
 - **Baú**: o texto "BAÚ" (máscara de cor branca ou amarela) **e** o "EXP" logo acima, na altura certa, em **duas olhadas seguidas**. Isso evita contar marcadores de distância ("846 m") que passam pelo mesmo lugar.
 - **Tesouro / fim**: comparação em tons de cinza.
 - **Tesouros do resumo**: conta os quadros dourados em "TESOURO ENCONTRADO".
+
+**Rotas**: os baús vêm do mapa do [fortnite.gg](https://fortnite.gg) (pasta `mapa/`). Baús próximos viram uma parada, e o programa escolhe as paradas que dão mais baús dentro do tempo (inserção gulosa + 2-opt), considerando ~6 m/s andando e ~7 s por baú.
 
 Os dados ficam em `dados_baus.json` e as configurações em `config.json`, na mesma pasta do programa.
